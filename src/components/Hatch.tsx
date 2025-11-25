@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { motion, useAnimation } from 'framer-motion';
-import { Lock, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { DayContent } from '../data/content';
 
 interface HatchProps {
