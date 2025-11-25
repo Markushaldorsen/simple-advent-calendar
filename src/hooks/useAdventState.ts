@@ -4,7 +4,6 @@ import { supabase } from '../lib/supabase';
 export const useAdventState = () => {
   const [openedDays, setOpenedDays] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   // Load initial state
   useEffect(() => {
@@ -67,5 +66,5 @@ export const useAdventState = () => {
     }
   };
 
-  return { openedDays, markDayOpened, loading, error };
+  return { openedDays, markDayOpened, loading };
 };
