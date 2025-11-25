@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import confetti from 'canvas-confetti';
-import { isAfter, isBefore, startOfDay, setYear, setMonth, setDate } from 'date-fns';
+import { isBefore, startOfDay } from 'date-fns';
 import { Snow } from './components/Snow';
 import { Hatch } from './components/Hatch';
 import { Modal } from './components/Modal';
