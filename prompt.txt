@@ -1,0 +1,407 @@
+You are an expert front-end game developer and software engineer. You are running inside VS Code in an EMPTY folder.
+
+I want you to create a **production-ready, advanced 2D golf simulation game** for web and mobile browsers.
+
+You must:
+
+- Set up the entire project from scratch.
+- Implement a clean, maintainable architecture.
+- Implement advanced ball physics and full-size golf gameplay (not minigolf).
+- Provide tests and scripts.
+- Ensure the game runs via a simple `npm install` + `npm run dev`.
+
+Below is the detailed specification. Please read it carefully and then generate ALL necessary files.
+
+---
+
+## 1. Game Overview
+
+**Title (working):** Fairway Frontier
+
+**Concept:**  
+A realistic 2D / 2.5D golf simulator with:
+
+- Full-length holes (par 3, 4, 5)
+- Full 14-club bag (driver → wedges + putter)
+- Advanced, but performant, ball physics
+- Realistic lies, wind, bounce, roll, and green slopes
+- Playable on both desktop (mouse) and mobile (touch)
+
+**Presentation:**
+
+- Top-down or slight isometric 2D view.
+- Camera pans and zooms to follow the ball.
+- Clean stylized art using flat colors and simple shapes.
+- UI optimized for mobile touch as well as desktop mouse.
+
+---
+
+## 2. Tech Stack & Project Setup
+
+Use:
+
+- **React + TypeScript**
+- **Vite** as the build tool
+- **ESLint** with a sensible configuration
+- **Prettier** for formatting
+- **Vitest** + **React Testing Library** for tests
+
+Use npm (not yarn/pnpm) for scripts.
+
+### Required project structure (you may adapt slightly, but keep this spirit):
+
+- `package.json`
+- `tsconfig.json`
+- `vite.config.ts`
+- `index.html`
+- `src/`
+  - `main.tsx`
+  - `App.tsx`
+  - `core/` (domain + physics, framework-agnostic)
+    - `core/types.ts` (core types: Vector, BallState, Club, Course, Hole, SurfaceType, ShotInput, Lie, etc.)
+    - `core/constants.ts` (physics constants, club data, surface coefficients)
+    - `core/physics.ts` (ball flight, collisions, bounce, roll, wind, spin handling)
+    - `core/greens.ts` (green slope behavior, height map utilities)
+    - `core/courseGenerator.ts` (or loader – but at least functions to build/load course data)
+    - `core/rules.ts` (golf rules logic: scoring, OB, water penalty, drops)
+  - `courses/`
+    - JSON definitions for at least **one full 18-hole course**.  
+      (Simple stylized shapes, but must encode: tee, green polygon, fairway polygons, hazard polygons, green height map, par, hole index.)
+  - `state/`
+    - A lightweight state management setup.  
+      Prefer **Zustand** or a small custom store over Redux Toolkit, unless you find Redux significantly cleaner.
+  - `components/`
+    - `GameShell.tsx` (layout, header/footer, main container)
+    - `GameCanvas.tsx` (render the course, ball, shadows, trajectory, animations via `<canvas>`)
+    - `HUD.tsx` (club selector, wind indicator, lie info, hole info, score, buttons)
+    - `ShotControls.tsx` (aim/power/spin input UI)
+    - `Scorecard.tsx`
+    - `MiniMap.tsx` (optional but preferred – a small course overview)
+  - `hooks/` (custom hooks for input handling, game loop, etc.)
+    - `useGameLoop.ts` (animation frame handling)
+    - `useInputHandlers.ts` (mouse/touch shot input)
+  - `styles/`
+    - `global.css` or similar.
+
+Ensure imports and paths are consistent.
+
+---
+
+## 3. Core Mechanics & Physics (Advanced)
+
+### 3.1 Coordinate System & Units
+
+- Use a **2D world coordinate system in meters**.
+- Treat the course as a 2D plane:
+  - x-axis: horizontal
+  - y-axis: vertical (towards/away from tee in top-down projection)
+- The rendered view will scale world units → screen pixels.
+
+### 3.2 Clubs & Shots
+
+Implement a **14-club bag** (or at least a representative set):
+
+- Driver, 3W, 5W
+- 3–9 Iron
+- PW, SW, LW
+- Putter
+
+For each club, define in `core/constants.ts`:
+
+- Base loft (degrees)
+- Base ball speed factor
+- Typical carry distance (for calibration)
+- Typical launch angle
+- Typical backspin
+- Typical dispersion (random variation in direction/distance)
+
+When the player hits a shot, use:
+
+- **ShotInput**:
+  - aimAngle (in radians or degrees)
+  - power (0–1)
+  - spin:
+    - backspin (relative modifier)
+    - sideSpin (fade/draw component)
+
+Power should scale ball speed and slightly affect spin.
+
+### 3.3 Environment & Surfaces
+
+Define surfaces and their properties:
+
+- `TEE`
+- `FAIRWAY`
+- `FIRST_CUT`
+- `ROUGH`
+- `HEAVY_ROUGH`
+- `BUNKER`
+- `GREEN`
+- `WATER`
+- `OUT_OF_BOUNDS`
+
+Each surface has coefficients:
+
+- `bounceCoefficient` (0–1)
+- `rollingFriction` (higher = slower roll)
+- `spinRetention` (how much spin is preserved after landing)
+- Launch modifiers when playing from that lie (lower launch from rough, etc.).
+
+### 3.4 Ball Flight Physics
+
+Implement physically-inspired but performant and stable ball flight:
+
+- Gravity: 9.81 m/s² downward (z axis conceptually; but you can handle as vertical component of velocity).
+- Simple drag model:
+  - Drag force proportional to velocity squared.
+  - Model via a drag coefficient constant in `constants.ts`.
+- Simple lift model for spin:
+  - Backspin increases lift and reduces descent rate, increasing carry.
+  - Side spin introduces slight lateral curvature (fade/draw), but keep this subtle and stable.
+- Wind:
+  - Represented as a 2D vector in world coordinates (m/s).
+  - Applied as a relative velocity effect on the ball.
+
+Implementation in `core/physics.ts`:
+
+- `simulateShot(initialState: BallState, shotInput: ShotInput, environment: Environment, callbacks?: ...)`
+  - Returns a list of sampled positions over time and the final `BallState`.
+  - Uses small time steps (e.g., dt = 0.01–0.02 s).
+  - Must be efficient enough for browser usage; consider limiting max sim time and early stopping when ball comes to rest.
+
+### 3.5 Collisions, Bounce & Roll
+
+When the ball reaches the ground:
+
+- Detect the surface type at the landing point (fairway, green, bunker, etc.).
+- Apply bounce:
+  - Use incident velocity and surface `bounceCoefficient`.
+  - Reduce vertical component; maintain some horizontal component.
+- Transition from flight mode → roll mode:
+  - While rolling:
+    - Apply friction deceleration based on surface.
+    - Apply green slope influence (for greens using a height map).
+  - Stop when speed falls below a small threshold.
+
+Special rules:
+
+- **Water**: mark as penalty; apply stroke penalty and drop (for now: drop at previous position or a reasonable default).
+- **Out of bounds**: stroke and distance (re-hit from previous location; simple version is OK).
+- **Bunker**:
+  - No bounce; ball “digs in”.
+  - Next shot from bunker will have reduced club distance and different launch.
+
+### 3.6 Greens & Slopes
+
+Represent green slopes with a **height map**:
+
+- A simple grid for each green (e.g., 20x20 cells in local green coordinates).
+- Provide functions in `core/greens.ts`:
+  - `getGreenHeightAt(x, y)` → height
+  - `getGreenSlopeVectorAt(x, y)` → gradient vector
+- Use the slope vector to:
+  - Affect roll direction and speed on the green.
+  - Visualize arrows or contour shading on the UI.
+
+---
+
+## 4. Courses & Holes
+
+Create at least **one full 18-hole course** in JSON under `src/courses/`.
+
+Each hole definition should include:
+
+- `index` (1–18)
+- `par` (3, 4, or 5)
+- `teePosition` (x, y)
+- `cupPosition` (x, y)
+- `bounds` polygon (playable area)
+- `fairway` polygons
+- `green` polygon + reference to green height map
+- `bunker` polygons
+- `water` polygons
+- Optionally `rough` polygons (with default if absent)
+
+Write utilities in `core/courseGenerator.ts` or `core/courseLoader.ts`:
+
+- To load the course JSON.
+- To provide easy access methods like `getSurfaceTypeAt(x, y)`.
+
+---
+
+## 5. Gameplay & UX
+
+### 5.1 Game Loop
+
+Implement a full 18-hole stroke play round:
+
+- Start at hole 1, tee.
+- Repeat:
+  - Show current lie, distance to hole, elevation difference (simple).
+  - Player selects club, aim, power, and optional spin.
+  - Simulate the shot and animate ball.
+  - Update lie, strokes, etc.
+  - If ball is holed, move to next hole.
+- After hole 18:
+  - Show scorecard and stats.
+
+Persist progress and stats in `localStorage`:
+
+- Best total score vs par.
+- Average score per hole.
+- Fairways hit, greens in regulation, average putts, etc. (start with a few basics).
+
+### 5.2 UI Components
+
+Implement:
+
+- **GameShell**: layout, top bar, bottom bar, responsive wrapper.
+- **GameCanvas**:
+  - Renders:
+    - Course polygons (fairway, rough, bunker, water, green).
+    - Ball, flagstick, cup.
+    - Optional shot trajectory trail.
+  - Handles camera:
+    - Follows ball during flight.
+    - Shows more zoom-out on tee shots, zoom-in around green.
+- **HUD**:
+  - Current hole (e.g., Hole 7 – Par 4)
+  - Strokes this hole
+  - Total score vs par
+  - Club selector
+  - Wind indicator (direction + speed)
+  - Lie display (FAIRWAY / ROUGH / BUNKER / GREEN etc.)
+- **ShotControls**:
+  - Aim indicator (rotate arrow around ball).
+  - Power meter via drag (distance from ball).
+  - Simple spin control (a mini “spin circle” where vertical axis = back/top, horizontal = fade/draw).
+- **Scorecard**:
+  - 18-hole table of par, strokes, and +/- vs par.
+- **MiniMap** (optional but good):
+  - Shows the hole layout and your ball position.
+
+### 5.3 Input Handling
+
+Implement robust handling via hooks:
+
+- `useInputHandlers`:
+  - On desktop:
+    - Mouse down near ball → start shot setup.
+    - Mouse move → set aim + power.
+    - Mouse up → commit shot.
+  - On mobile:
+    - Touch start / move / end with similar behavior.
+- Input should be tolerant of small offsets (touch slop).
+
+---
+
+## 6. Architecture & State Management
+
+Use a central game store (e.g., Zustand) in `src/state/`:
+
+- Holds:
+  - Current course & hole
+  - Current ball state
+  - Current lie and surface
+  - Current hole index
+  - Strokes per hole
+  - Total score
+  - Game phase (idle, aiming, animatingShot, holeComplete, roundComplete)
+
+Expose actions:
+
+- `startNewRound()`
+- `startHole(index)`
+- `setShotInput(ShotInput)`
+- `executeShot()`
+- `advanceToNextHole()`
+- etc.
+
+React components should be **thin** and primarily subscribe to slices of state and dispatch actions.
+
+---
+
+## 7. Testing
+
+Set up **Vitest + React Testing Library** and create tests:
+
+### 7.1 Unit Tests (core)
+
+In `core/__tests__/physics.test.ts`:
+
+- Test that:
+  - A no-wind shot with certain club/power goes generally forward and lands within a reasonable distance range.
+  - A strong headwind reduces distance vs tailwind.
+  - A shot landing on green transitions to roll and comes to rest.
+
+In `core/__tests__/greens.test.ts`:
+
+- Test that slope vectors are correct for a simple height map (e.g., linear gradient).
+
+In `core/__tests__/courseLoader.test.ts`:
+
+- Test that:
+  - Course JSON loads correctly.
+  - `getSurfaceTypeAt` returns appropriate surface for known points.
+
+### 7.2 Component Tests
+
+In `components/__tests__/App.test.tsx` or similar:
+
+- Render `<App />` and assert:
+  - Game renders with Hole 1 info visible.
+  - Club selector is present.
+  - HUD shows strokes and par.
+
+Optional but nice:
+
+- Simulate a basic shot flow (mock physics) and ensure that:
+  - After committing a shot, stroke count increases.
+
+---
+
+## 8. Tooling, Scripts & Documentation
+
+### 8.1 package.json Scripts
+
+Include at least:
+
+- `"dev": "vite"`
+- `"build": "vite build"`
+- `"preview": "vite preview"`
+- `"test": "vitest"`
+- `"lint": "eslint ."`
+
+### 8.2 ESLint & Prettier
+
+Set up:
+
+- ESLint for TS + React.
+- Prettier (or ESLint with prettier integration).
+- Ensure the project **passes lint** with defaults.
+
+### 8.3 README
+
+Create a `README.md` that includes:
+
+- Project name and short description.
+- Tech stack overview.
+- Instructions:
+  - Prereqs (Node version).
+  - Install: `npm install`
+  - Run dev server: `npm run dev`
+  - Run tests: `npm run test`
+  - Build for production: `npm run build`
+- Basic explanation of gameplay and controls.
+
+---
+
+## 9. Final Requirements
+
+1. Output **all necessary files** with their contents, clearly labeled (e.g., `--- filename ---`).
+2. Ensure all imports and paths are consistent and correct.
+3. Ensure TypeScript compiles without errors.
+4. Ensure `npm run dev`, `npm run test`, and `npm run build` work without modification.
+5. Favor clarity, maintainability, and correctness over micro-optimizations.
+
+Now, based on this specification, please generate the full project: all source files, configs, course JSON, tests, and the README, along with a short list of the exact commands I need to run in the terminal after pasting these files into my empty folder.
